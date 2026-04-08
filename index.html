@@ -143,7 +143,7 @@
     .ctitle{font-size:11px;font-weight:600;line-height:1.3;overflow:hidden;display:-webkit-box;
       -webkit-line-clamp:2;-webkit-box-orient:vertical;margin-bottom:3px}
     .cmood{font-size:8px;color:var(--text3);background:var(--bg4);padding:2px 5px;border-radius:3px}
-    .cmobile-actions{display:flex;gap:4px;padding:6px 8px;background:var(--bg3);border-top:1px solid var(--border)}
+
 
     /* ===== FORM ===== */
     .fp{padding:14px}
@@ -451,10 +451,14 @@
         <div class="coverow">
           <div class="covprev" id="covprev">🎬</div>
           <div class="covinputs">
-            <button class="fetch-btn" id="fbtn" onclick="fetchPoster()">🔍 Auto-Fetch Poster</button>
+            <button class="fetch-btn" id="fbtn" onclick="fetchPoster()">🔍 Auto-Fetch Poster & Watchtime</button>
             <input type="text" class="fi" id="fcover" placeholder="Or paste image URL..." style="font-size:11px;padding:9px 11px" oninput="updateCovPrev(this.value)">
           </div>
         </div>
+      </div>
+      <div class="fg">
+        <label class="fl">Total Watchtime (Minutes)</label>
+        <input type="number" class="fi" id="fruntime" placeholder="E.g. 120 (optional)" min="0">
       </div>
       <button class="submit-btn" id="sbtn" onclick="saveEntry()">SAVE TO VAULT</button>
       <div style="height:16px"></div>
@@ -594,7 +598,24 @@ try {
   const urlParams = new URLSearchParams(window.location.search);
   const sharedParam = urlParams.get('v');
   if (sharedParam) {
-    db = JSON.parse(LZString.decompressFromEncodedURIComponent(sharedParam));
+    const raw = JSON.parse(LZString.decompressFromEncodedURIComponent(sharedParam));
+    const MOODS_LIST = ['Mind-Blowing','All Rounder','Funny','Sad','Disturbing','Hype','Slow Poison','Overrated','Underrated','Mind F*ck','All Time Fav','Dark','Feel Good','Emotional','Action-Packed','Thriller','Cult Classic'];
+    if (raw && raw[0] && raw[0].t !== undefined) {
+      db = raw.map((x, i) => {
+        let c = x.c || '';
+        c = c.replace('!', 'https://m.media-amazon.com/images/M/');
+        c = c.replace('*', '._V1_SX300.jpg');
+        return {
+          id: 's_'+i, title: x.t,
+          type: x.y === 1 ? 'movie' : (x.y === 2 ? 'series' : 'anime'),
+          status: 'watched', rating: x.r,
+          moods: (x.m||[]).map(idx=>MOODS_LIST[idx]).filter(Boolean),
+          thoughts: '', coverImage: c, runtime: x.u || 0, dateAdded: new Date().toISOString()
+        };
+      });
+    } else {
+      db = raw;
+    }
     isSharedView = true;
   } else {
     db = JSON.parse(localStorage.getItem(SK) || '[]');
@@ -696,8 +717,11 @@ function card(item) {
     ? `<img src="${esc(item.coverImage)}" loading="lazy" alt="${esc(item.title)}" onerror="this.parentElement.innerHTML='${phImg(item.title).replace(/'/g,"\\'")}'">` 
     : phImg(item.title);
   const topMood = (item.moods||[])[0]||'';
-  const moveBtn = item.status==='watchlist'
+  const moveBtn = (item.status==='watchlist' && !isSharedView)
     ? `<button class="ca move" onclick="event.stopPropagation();moveWatched('${item.id}')">✅</button>` : '';
+  const editBtn = !isSharedView ? `<button class="ca edit" onclick="event.stopPropagation();nav('add','${item.id}')">✏️</button>` : '';
+  const delBtn = !isSharedView ? `<button class="ca del" onclick="event.stopPropagation();openDel('${item.id}','${esc(item.title)}')">🗑</button>` : '';
+  
   return `
     <div class="mcard" onclick="nav('detail','${item.id}')">
       <div class="cpos">
@@ -705,19 +729,14 @@ function card(item) {
         <div class="cbadge-type">${te} ${item.type}</div>
         ${rm}
         <div class="coverlay">
-          <button class="ca edit" onclick="event.stopPropagation();nav('add','${item.id}')">✏️</button>
-          ${item.status==='watchlist'?`<button class="ca move" onclick="event.stopPropagation();moveWatched('${item.id}')">✅</button>`:''}
-          <button class="ca del" onclick="event.stopPropagation();openDel('${item.id}','${esc(item.title)}')">🗑</button>
+          ${editBtn}
+          ${moveBtn}
+          ${delBtn}
         </div>
       </div>
       <div class="cinfo">
         <div class="ctitle">${esc(item.title)}</div>
         ${topMood?`<span class="cmood">${esc(topMood)}</span>`:''}
-      </div>
-      <div class="cmobile-actions">
-        <button class="ca edit" style="flex:1;padding:7px" onclick="event.stopPropagation();nav('add','${item.id}')">✏️ Edit</button>
-        ${moveBtn ? `<button class="ca move" style="flex:1;padding:7px" onclick="event.stopPropagation();moveWatched('${item.id}')">✅ Watched</button>` : ''}
-        <button class="ca del" style="flex:0.5;padding:7px" onclick="event.stopPropagation();openDel('${item.id}','${esc(item.title)}')">🗑</button>
       </div>
     </div>`;
 }
@@ -743,6 +762,7 @@ function initForm(id) {
     selMoods = [...(it.moods||[])]; selRec = it.recommend||null;
     document.getElementById('fthoughts').value = it.thoughts||'';
     document.getElementById('fcover').value = it.coverImage||'';
+    document.getElementById('fruntime').value = it.runtime || '';
     updateCovPrev(it.coverImage);
   } else {
     document.getElementById('ftit').value = '';
@@ -750,6 +770,7 @@ function initForm(id) {
     selMoods=[]; selRec=null;
     document.getElementById('fthoughts').value='';
     document.getElementById('fcover').value='';
+    document.getElementById('fruntime').value='';
     document.getElementById('covprev').innerHTML='🎬';
   }
   refreshSegment('type-seg', selType);
@@ -831,23 +852,75 @@ async function fetchPoster() {
   const btn = document.getElementById('fbtn');
   btn.disabled = true;
   btn.innerHTML = '<span class="loader"></span> Fetching...';
+  document.getElementById('fruntime').value = '';
+
   try {
+    let watchMins = 0;
+    try {
+      if (selType === 'series') {
+        const tr = await fetch(`https://api.tvmaze.com/singlesearch/shows?q=${encodeURIComponent(title)}`);
+        const ts = await tr.json();
+        if (ts && ts.id) {
+          const er = await fetch(`https://api.tvmaze.com/shows/${ts.id}/episodes`);
+          const eps = await er.json();
+          watchMins = (eps.length || 0) * (ts.averageRuntime || ts.runtime || 45);
+        }
+      } else if (selType === 'anime') {
+        const jr = await fetch(`https://api.jikan.moe/v4/anime?q=${encodeURIComponent(title)}&order_by=members&sort=desc&limit=1`);
+        const jd = await jr.json();
+        if (jd && jd.data && jd.data.length) {
+          const anime = jd.data[0];
+          const epMins = parseInt((anime.duration||'').match(/\d+/)?.[0] || 24);
+          watchMins = (anime.episodes || 100) * epMins;
+        }
+      }
+    } catch(e) {}
+
     const r = await fetch(`https://www.omdbapi.com/?t=${encodeURIComponent(title)}&apikey=${key}`);
     const d = await r.json();
+    let poster = '';
+    
     if (d.Response==='True' && d.Poster && d.Poster!=='N/A') {
-      document.getElementById('fcover').value = d.Poster;
-      updateCovPrev(d.Poster); toast('✅ Poster found!');
+      poster = d.Poster;
+      if (d.Runtime && d.Runtime !== 'N/A') {
+         const omdbMins = parseInt(d.Runtime) || 0;
+         if (selType === 'movie') watchMins = omdbMins;
+         else if (watchMins === 0 && d.Type === 'series' && d.totalSeasons) {
+             watchMins = parseInt(d.totalSeasons) * 12 * omdbMins;
+         }
+      }
     } else {
       const r2 = await fetch(`https://www.omdbapi.com/?s=${encodeURIComponent(title)}&apikey=${key}`);
       const d2 = await r2.json();
       if (d2.Response==='True' && d2.Search?.[0]?.Poster && d2.Search[0].Poster!=='N/A') {
-        document.getElementById('fcover').value = d2.Search[0].Poster;
-        updateCovPrev(d2.Search[0].Poster); toast('✅ Poster found!');
-      } else toast('❌ No poster found. Paste URL manually.');
+        poster = d2.Search[0].Poster;
+        try {
+          const r3 = await fetch(`https://www.omdbapi.com/?i=${d2.Search[0].imdbID}&apikey=${key}`);
+          const d3 = await r3.json();
+          if (d3.Runtime && d3.Runtime !== 'N/A') {
+              const omdbMins = parseInt(d3.Runtime) || 0;
+              if (selType === 'movie') watchMins = omdbMins;
+              else if (watchMins === 0 && d3.Type === 'series' && d3.totalSeasons) {
+                  watchMins = parseInt(d3.totalSeasons) * 12 * omdbMins;
+              }
+          }
+        } catch(e) {}
+      }
     }
+
+    if (poster) {
+      document.getElementById('fcover').value = poster;
+      updateCovPrev(poster);
+      toast('✅ Data & Poster found!');
+    } else {
+      toast('❌ No poster found. Paste URL manually.');
+    }
+    
+    if (watchMins > 0) document.getElementById('fruntime').value = watchMins;
+
   } catch(e) { toast('❌ Fetch failed. Check key & connection.'); }
   btn.disabled = false;
-  btn.innerHTML = '🔍 Auto-Fetch Poster';
+  btn.innerHTML = '🔍 Auto-Fetch Poster & Watchtime';
 }
 
 function saveEntry() {
@@ -861,6 +934,7 @@ function saveEntry() {
     thoughts: document.getElementById('fthoughts').value.trim(),
     recommend: selRec,
     coverImage: document.getElementById('fcover').value.trim(),
+    runtime: parseInt(document.getElementById('fruntime').value) || 0,
     dateAdded: id ? (db.find(x=>x.id===id)?.dateAdded || new Date().toISOString()) : new Date().toISOString()
   };
   if (id) { const i = db.findIndex(x=>x.id===id); if(i!==-1) db[i]=entry; }
@@ -894,11 +968,13 @@ function renderDetail(id) {
       ${(it.rating||0)>0?`<div class="det-rating">${it.rating}</div><div class="det-rl">out of 10 ${stars}</div>`:''}
       ${(it.moods||[]).length?`<div class="det-moods">${it.moods.map(m=>`<span class="det-mpill">${esc(m)}</span>`).join('')}</div>`:''}
       ${it.thoughts?`<div class="det-thoughts">"${esc(it.thoughts)}"</div>`:''}
+      ${!isSharedView ? `
       <div class="det-actions">
         <button class="btn btn-primary" onclick="nav('add','${it.id}')">✏️ Edit</button>
         <button class="btn btn-sec" onclick="openDel('${it.id}','${esc(it.title)}')">🗑 Delete</button>
       </div>
       ${it.status==='watchlist'?`<button class="btn btn-primary" onclick="moveWatched('${it.id}');nav('home')" style="width:100%;margin-top:8px">✅ Mark as Watched</button>`:''}
+      ` : ''}
     </div>`;
 }
 
@@ -939,7 +1015,8 @@ function renderFlex() {
   const series = watched.filter(x => x.type==='series');
   const anime = watched.filter(x => x.type==='anime');
   const avg = watched.length ? (watched.reduce((s,x)=>s+(x.rating||0),0)/watched.length).toFixed(1) : 0;
-  const hrs = Math.round(movies.length*2 + (series.length+anime.length)*12*0.75);
+  const totalMins = watched.reduce((sum, x) => sum + (x.runtime || (x.type === 'movie' ? 120 : (x.type === 'series' ? 1320 : 1680))), 0);
+  const hrs = Math.round(totalMins / 60);
   const allMoods = watched.flatMap(x => x.moods||[]);
 
   document.getElementById('fstats').innerHTML = `
@@ -1056,11 +1133,19 @@ async function shareVault() {
     toast('⚠️ Local file! Host it online to share clickable links, or use Save Image.');
   }
   const watched = db.filter(x=>x.status==='watched');
-  const minDb = watched.map(x => ({
-    id: x.id, title: x.title, type: x.type, status: 'watched',
-    rating: x.rating, moods: x.moods||[], thoughts: x.thoughts||'',
-    coverImage: x.coverImage||'', dateAdded: x.dateAdded||''
-  }));
+  const minDb = watched.map(x => {
+    let c = x.coverImage || '';
+    c = c.replace('https://m.media-amazon.com/images/M/', '!');
+    c = c.replace('._V1_SX300.jpg', '*');
+    return {
+      t: x.title,
+      y: x.type === 'movie' ? 1 : (x.type === 'series' ? 2 : 3),
+      r: x.rating,
+      m: (x.moods||[]).map(m=>MOODS.indexOf(m)).filter(idx=>idx!==-1),
+      c: c,
+      u: x.runtime || 0
+    };
+  });
   const b64 = LZString.compressToEncodedURIComponent(JSON.stringify(minDb));
   const base = window.location.href.split('?')[0].split('#')[0];
   const shareUrl = base + '?v=' + b64 + '#flex';
@@ -1124,6 +1209,10 @@ function toast(msg) {
 // INIT
 // ========================
 document.addEventListener('DOMContentLoaded', () => {
+  if (isSharedView) {
+    document.getElementById('sb-add').style.display = 'none';
+    document.getElementById('bn-add').style.display = 'none';
+  }
   renderHome();
   if (window.location.hash==='#flex') nav('flex');
   // Close modal on overlay click
